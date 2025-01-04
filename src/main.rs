@@ -6,20 +6,27 @@
  * [ ] Implement verify route as middleware (if needed)
  */
 
-mod auth;
+// TODO:
+// When joining the ws send JOIN OpCode with user_id
+// Store the { user_id: broadcast } in hashmap
+// Change the lobby client storage to only store id and use the sender from the above mentioned hashmap
+
+mod app_state;
 mod config;
 mod lobby;
 mod lobic_db;
 mod routes;
 mod schema;
+mod user_pool;
 mod utils;
 
-use futures::poll;
-use lobby::*;
-use config::{ IP, PORT, allowed_origins };
-use lobic_db::db::*;
+use app_state::AppState;
+use config::{allowed_origins, IP, PORT};
 use routes::{
-	get_music::{get_all_music, get_music_by_title},
+	get_music::{
+		get_all_music, get_cover_image, get_music_by_title, get_music_by_uuid, send_music,
+	},
+	get_user::get_user,
 	login::login,
 	save_music::save_music,
 	signup::signup,
@@ -27,13 +34,9 @@ use routes::{
 	verify::verify,
 };
 
-use diesel::prelude::*;
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use tokio::net::TcpListener;
-use tower_http::cors::{ AllowOrigin, CorsLayer };
 use axum::{
 	body::Body,
-	http::{header, HeaderValue, Method, Request},
+	http::{header, Method, Request},
 	middleware::Next,
 	response::Response,
 	routing::{get, post},
@@ -41,8 +44,11 @@ use axum::{
 };
 use colored::*;
 use diesel::prelude::*;
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use dotenv::dotenv;
 use std::time::Instant;
+use tokio::net::TcpListener;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 // Embed migrations into the binary
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
@@ -107,14 +113,10 @@ async fn main() {
 	let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env file");
 	run_migrations(&db_url);
 
-	// Pool of database connections
-	let db_pool = generate_db_pool();
-
-	// Create lobby pool
-	let lobby_pool: LobbyPool = LobbyPool::new();
+	// Creating the global state
+	let app_state = AppState::new();
 
 	let cors = CorsLayer::new()
-		//.allow_origin(ORIGIN.parse::<HeaderValue>().unwrap())
 		.allow_origin(AllowOrigin::predicate(allowed_origins))
 		.allow_credentials(true)
 		.allow_methods([Method::GET, Method::POST, Method::OPTIONS])
@@ -122,57 +124,21 @@ async fn main() {
 
 	let app = Router::new()
 		.route("/", get(index))
-		.route(
-			"/signup",
-			post({
-				let db_pool = db_pool.clone();
-				|payload| signup(payload, db_pool)
-			}),
-		)
-		.route(
-			"/login",
-			post({
-				let db_pool = db_pool.clone();
-				|payload| login(payload, db_pool)
-			}),
-		)
+		.route("/get_user", get(get_user))
+		.route("/signup", post(signup))
+		.route("/login", post(login))
 		.route("/verify", get(verify))
+		.route("/music", get(send_music)) //to test just vlc http://127.0.0.1:8080/music/
 		.route(
-			"/save_music",
-			post({
-				let pool = db_pool.clone();
-				|payload| save_music(payload, pool)
-			}),
+			"/image/:filename",
+			get(|music_uuid| get_cover_image(music_uuid)),
 		)
-		.route(
-			"/music_by_title",
-			get({
-				let db_pool = db_pool.clone();
-				|payload| get_music_by_title(payload, db_pool)
-			}),
-		)
-		.route(
-			"/music",
-			get({
-				let db_pool = db_pool.clone();
-				move || async { get_all_music(db_pool).await }
-			}),
-		)
-		// .route(  //this can only handle one response not all of the songs in the db
-		// 	"/music",
-		// 	get({
-		// 		let db_pool = db_pool.clone();
-		// 		get_all_music(db_pool).await
-		// 	}),
-		// )
-		.route(
-			"/ws",
-			get({
-				let lobby_pool = lobby_pool.clone();
-				let db_pool = db_pool.clone();
-				|payload| websocket_handler(payload, db_pool, lobby_pool)
-			}),
-		)
+		.route("/save_music", post(save_music))
+		.route("/music_by_title", get(get_music_by_title))
+		.route("/music_by_uuid", get(get_music_by_uuid))
+		.route("/all_music", get(get_all_music))
+		.route("/ws", get(websocket_handler))
+		.with_state(app_state)
 		.layer(axum::middleware::from_fn(logger))
 		.layer(cors);
 

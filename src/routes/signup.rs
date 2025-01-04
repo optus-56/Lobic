@@ -1,9 +1,10 @@
-use crate::auth::{exp, jwt};
-use crate::lobic_db::{db::DatabasePool, models::User};
+use crate::app_state::AppState;
+use crate::lobic_db::models::User;
 use crate::schema::users::dsl::*;
-use crate::utils::cookie;
+use crate::utils::{cookie, exp, jwt};
 
 use axum::{
+	extract::State,
 	http::{header, status::StatusCode},
 	response::Response,
 	Json,
@@ -20,9 +21,12 @@ pub struct SignupPayload {
 	pub password: String,
 }
 
-pub async fn signup(Json(payload): Json<SignupPayload>, db_pool: DatabasePool) -> Response<String> {
+pub async fn signup(
+	State(app_state): State<AppState>,
+	Json(payload): Json<SignupPayload>,
+) -> Response<String> {
 	// Getting db from pool
-	let mut db_conn = match db_pool.get() {
+	let mut db_conn = match app_state.db_pool.get() {
 		Ok(conn) => conn,
 		Err(err) => {
 			let msg = format!("Failed to get DB from pool: {err}");
@@ -97,11 +101,13 @@ pub async fn signup(Json(payload): Json<SignupPayload>, db_pool: DatabasePool) -
 	};
 
 	// Create cookies for access and refresh tokens
-	let access_cookie = cookie::create("access_token", &access_token, 60 * 60);
-	let refresh_cookie = cookie::create("refresh_token", &refresh_token, 7 * 24 * 60 * 60);
+	let user_cookie = cookie::create("user_id", &user_id, 60 * 60, false);
+	let access_cookie = cookie::create("access_token", &access_token, 60 * 60, true);
+	let refresh_cookie = cookie::create("refresh_token", &refresh_token, 7 * 24 * 60 * 60, true);
 
 	Response::builder()
 		.status(StatusCode::OK)
+		.header(header::SET_COOKIE, user_cookie)
 		.header(header::SET_COOKIE, access_cookie)
 		.header(header::SET_COOKIE, refresh_cookie)
 		.body("OK".to_string())

@@ -1,5 +1,4 @@
-use crate::auth::{exp, jwt};
-use crate::utils::cookie;
+use crate::utils::{cookie, exp, jwt};
 
 use axum::{
 	http::{header, status::StatusCode},
@@ -35,7 +34,7 @@ pub async fn verify(jar: CookieJar) -> Response<String> {
 	match jwt::verify(access_token.value(), &secret_key) {
 		Ok(data) => {
 			let claims = data.claims;
-			let user_cookie = cookie::create("user_id", &claims.id, 60 * 60);
+			let user_cookie = cookie::create("user_id", &claims.id, 60 * 60, false);
 			return Response::builder()
 				.status(StatusCode::OK)
 				.header(header::SET_COOKIE, user_cookie)
@@ -65,8 +64,8 @@ pub async fn verify(jar: CookieJar) -> Response<String> {
 				}
 			};
 
-			let user_cookie = cookie::create("user_id", &claims.id, 60 * 60);
-			let access_cookie = cookie::create("access_token", &access_token, 60 * 60);
+			let user_cookie = cookie::create("user_id", &claims.id, 60 * 60, false);
+			let access_cookie = cookie::create("access_token", &access_token, 60 * 60, true);
 			return Response::builder()
 				.status(StatusCode::OK)
 				.header(header::SET_COOKIE, user_cookie)
