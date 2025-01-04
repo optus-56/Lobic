@@ -1,0 +1,19 @@
+.grid-container {
+	display: grid;
+	height: 50rem;
+	grid-template-columns: repeat(auto-fit, minmax(260px, 260px));
+	grid-template-rows: repeat(auto-fit, 300px);
+	gap: 1.5rem;
+	width: 100%;
+	padding-right: 10%;
+	padding-left: 10%;
+	margin-top: 1.3rem;
+	box-sizing: border-box;
+	overflow: visible;
+	opacity: 0;
+}
+
+.grid-container.show {
+	opacity: 1;
+}
+
